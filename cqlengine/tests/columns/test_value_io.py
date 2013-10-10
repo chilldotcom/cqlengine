@@ -155,6 +155,12 @@ class TestDecimalIO(BaseColumnIOTest):
     def comparator_converter(self, val):
         return Decimal(val)
 
+class TestBigInt(BaseColumnIOTest):
+
+    column = columns.BigInt
+    pkey_val = 5
+    data_val = 6
+
 class TestQuoter(unittest.TestCase):
 
     def test_equals(self):

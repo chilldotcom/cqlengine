@@ -266,6 +266,24 @@ class VarInt(Column):
         return self.validate(value)
 
 
+class BigInt(Column):
+    db_type = 'bigint'
+
+    def validate(self, value):
+        val = super(BigInt, self).validate(value)
+        if val is None: return
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            raise ValidationError("{} can't be converted to integral value".format(value))
+
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
+
+
 class CounterValueManager(BaseValueManager):
     def __init__(self, instance, column, value):
         super(CounterValueManager, self).__init__(instance, column, value)
