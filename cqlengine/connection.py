@@ -41,7 +41,7 @@ def setup(hosts, username=None, password=None, default_keyspace=None, consistenc
             _hosts.append(host[0])
         elif len(host) == 2:
             _hosts.append(host[0])
-            port = host[1]
+            port = int(host[1])
         else:
             raise CQLConnectionError("Can't parse {}".format(''.join(host)))
 
