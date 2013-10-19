@@ -80,11 +80,6 @@ def execute(query, params=None, consistency_level=None):
     consistency_level = get_consistency_level(consistency_level)
     session = get_connection_pool()
     query = SimpleStatement(query, consistency_level=consistency_level)
-    print '-----'
-    print query
-    print '-----'
-    print params
-    print '-----'
     val = session.execute(query, parameters=params)
     return val
 

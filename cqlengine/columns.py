@@ -197,7 +197,6 @@ class Bytes(Column):
     db_type = 'blob'
 
     def to_database(self, value):
-        print 'xxxx CALLING to_database {}'.format(value)
         val = super(Bytes, self).to_database(value)
         if val is None: return
         return val.encode('hex')
