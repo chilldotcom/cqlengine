@@ -43,6 +43,9 @@ class NamedColumn(AbstractQueryableColumn):
     def get_cql(self):
         return '"{}"'.format(self.name)
 
+    def to_database(self, val):
+        return val
+
 class NamedTable(object):
     """
     A Table that is not coupled to a model class
