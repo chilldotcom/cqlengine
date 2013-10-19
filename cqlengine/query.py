@@ -127,7 +127,7 @@ class IterableQueryValue(QueryValue):
             raise QueryException("in operator arguments must be iterable, {} found".format(value))
 
     def get_dict(self, column):
-        return dict((i, v) for (i, v) in zip(self.identifier, self.value))
+        return dict((i, column.to_database(v)) for (i, v) in zip(self.identifier, self.value))
 
     def get_cql(self):
         return '({})'.format(', '.join('%({})s'.format(i) for i in self.identifier))
@@ -315,8 +315,12 @@ class AbstractQuerySet(object):
     def _where_values(self):
         """ Returns the value dict to be passed to the cql query """
         values = {}
+        print '_where_values {}'.format(self)
         for where in self._where:
             values.update(where.get_dict())
+        print 'xx--xx--xx- '
+        print values
+        print 'xx--xx--xx-'
         return values
 
     def _get_select_statement(self):

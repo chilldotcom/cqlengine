@@ -22,7 +22,7 @@ class QueryValue(object):
         return self.value
 
     def get_dict(self, column):
-        return {self.identifier: self.get_value()}
+        return {self.identifier: column.to_database(self.get_value())}
 
     @property
     def cql(self):
@@ -100,7 +100,7 @@ class Token(BaseQueryFunction):
     def get_dict(self, column):
         items = zip(self.identifier, self.value, column.partition_columns)
         return dict(
-            (id, val) for id, val, col in items
+            (id, col.to_database(val)) for id, val, col in items
         )
 
     def get_cql(self):
