@@ -1,5 +1,6 @@
 import json
 import warnings
+from cassandra import InvalidRequest
 from cqlengine import SizeTieredCompactionStrategy, LeveledCompactionStrategy
 from cqlengine.named import NamedTable
 
@@ -127,9 +128,9 @@ def sync_table(model, create_missing_keyspace=True):
 
             try:
                 execute(qs)
-            except CQLEngineException:
-                # index already exists
-                pass
+            except InvalidRequest, e:
+                if e.message == 'code=2200 [Invalid query] message="Index already exists"':
+                    pass
 
 def get_create_table(model):
     cf_name = model.column_family_name()
