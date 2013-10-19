@@ -350,6 +350,8 @@ class AbstractQuerySet(object):
         if self._batch:
             raise CQLEngineException("Only inserts, updates, and deletes are available in batch mode")
         if self._result_cache is None:
+            print 'xxxqqqq'
+            print self._select_query()
             self._result_cache = execute(self._select_query(), self._where_values())
             field_names = set(sum([res._fields for res in self._result_cache], tuple()))
             self._construct_result = self._get_result_constructor(field_names)
