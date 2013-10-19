@@ -729,12 +729,12 @@ class List(BaseContainerColumn):
                 # it here, or have it inserted in reverse
                 prepend.reverse()
                 values[field_id] = self.Quoter(prepend)
-                statements += ['"{0}" = :{1} + "{0}"'.format(self.db_field_name, field_id)]
+                statements += ['"{0}" = %({1})s + "{0}"'.format(self.db_field_name, field_id)]
 
             if append:
                 field_id = uuid1().hex
                 values[field_id] = self.Quoter(append)
-                statements += ['"{0}" = "{0}" + :{1}'.format(self.db_field_name, field_id)]
+                statements += ['"{0}" = "{0}" + %({1})s'.format(self.db_field_name, field_id)]
 
             return statements
 
