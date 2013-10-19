@@ -51,7 +51,7 @@ def create_keyspace(name, strategy_class='SimpleStrategy', replication_factor=3,
 
 def delete_keyspace(name):
     with connection_manager() as con:
-        _, keyspaces = con.execute("""SELECT keyspace_name FROM system.schema_keyspaces""", {})
+        keyspaces = con.execute("""SELECT keyspace_name FROM system.schema_keyspaces""", {})
         if name in [r[0] for r in keyspaces]:
             execute("DROP KEYSPACE {}".format(name))
 
