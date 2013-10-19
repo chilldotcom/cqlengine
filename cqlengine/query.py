@@ -835,12 +835,21 @@ class DMLQuery(object):
         self._batch = batch_obj
         return self
 
-    def save(self):
+    def save(self, trace=False):
         """
         Creates / updates a row.
         This is a blind insert call.
         All validation and cleaning needs to happen
         prior to calling this.
+
+        If `trace` is set to :const:`True`, an attempt will be made to
+        fetch the trace details and attach them to the `query`'s
+        :attr:`~.Statement.trace` attribute in the form of a :class:`.QueryTrace`
+        instance.  This requires that `query` be a :class:`.Statement` subclass
+        instance and not just a string.  If there is an error fetching the
+        trace details, the :attr:`~.Statement.trace` attribute will be left as
+        :const:`None`.
+
         """
         if self.instance is None:
             raise CQLEngineException("DML Query intance attribute is None")

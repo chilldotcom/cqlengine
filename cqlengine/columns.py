@@ -1,43 +1,12 @@
-from cassandra import cqltypes
+#column field types
 from copy import copy
 from datetime import datetime
 from datetime import date
 import re
 from uuid import uuid1, uuid4
+from cql.query import cql_quote
 
 from cqlengine.exceptions import ValidationError
-
-
-def __escape_quotes(term):
-    assert isinstance(term, basestring)
-    return term.replace("'", "''")
-
-def cql_quote(term, cql_major_version=3):
-    if isinstance(term, unicode):
-        return "'%s'" % __escape_quotes(term.encode('utf8'))
-    elif isinstance(term, str):
-        return "'%s'" % __escape_quotes(str(term))
-    elif isinstance(term, bool) and cql_major_version == 2:
-        return "'%s'" % str(term)
-    else:
-        return str(term)
-
-
-internal_clq_type_mapping = {
-    'text': cqltypes.UTF8Type,
-    'blob': cqltypes.BytesType,
-    'ascii': cqltypes.AsciiType,
-    'text': cqltypes.UTF8Type,
-    'int': cqltypes.Int32Type,
-    'varint': cqltypes.IntegerType,
-    'timestamp': cqltypes.DateType,
-    'uuid': cqltypes.UUIDType,
-    'timeuuid': cqltypes.TimeUUIDType,
-    'boolean': cqltypes.BooleanType,
-    'double': cqltypes.DoubleType,
-}
-
-
 
 class BaseValueManager(object):
 
@@ -106,7 +75,6 @@ class Column(object):
 
     #the cassandra type this column maps to
     db_type = None
-
     value_manager = BaseValueManager
 
     instance_counter = 0
@@ -149,30 +117,31 @@ class Column(object):
         Column.instance_counter += 1
 
     def validate(self, value):
-        '''
-        add extra validation (before cassandra-driver)
-        '''
+        """
+        Returns a cleaned and validated value. Raises a ValidationError
+        if there's a problem
+        """
         if value is None:
             if self.has_default:
-                value = self.get_default()
+                return self.get_default()
             elif self.required:
-                value = self.ctype.validate(value)
+                raise ValidationError('{} - None values are not allowed'.format(self.column_name or self.db_field))
         return value
 
     def to_python(self, value):
-        '''
-        does some extra python-python conversion
-        eg. convert a datetime to date for a date column
-        '''
+        """
+        Converts data from the database into python values
+        raises a ValidationError if the value can't be converted
+        """
         return value
 
-    @property
-    def ctype(self):
-        '''
-        the cassandra type identifier as defined in 
-        python cassandra driver
-        '''
-        return internal_clq_type_mapping[self.db_type]
+    def to_database(self, value):
+        """
+        Converts python value into database value
+        """
+        if value is None and self.has_default:
+            return self.get_default()
+        return value
 
     @property
     def has_default(self):
@@ -227,6 +196,11 @@ class Column(object):
 class Bytes(Column):
     db_type = 'blob'
 
+    def to_database(self, value):
+        val = super(Bytes, self).to_database(value)
+        if val is None: return
+        return val.encode('hex')
+
 
 class Ascii(Column):
     db_type = 'ascii'
@@ -257,9 +231,57 @@ class Text(Column):
 class Integer(Column):
     db_type = 'int'
 
+    def validate(self, value):
+        val = super(Integer, self).validate(value)
+        if val is None: return
+        try:
+            return long(val)
+        except (TypeError, ValueError):
+            raise ValidationError("{} can't be converted to integral value".format(value))
+
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
+
 
 class VarInt(Column):
     db_type = 'varint'
+
+    def validate(self, value):
+        val = super(VarInt, self).validate(value)
+        if val is None:
+            return
+        try:
+            return long(val)
+        except (TypeError, ValueError):
+            raise ValidationError(
+                "{} can't be converted to integral value".format(value))
+
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
+
+
+class BigInt(Column):
+    db_type = 'bigint'
+
+    def validate(self, value):
+        val = super(BigInt, self).validate(value)
+        if val is None: return
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            raise ValidationError("{} can't be converted to integral value".format(value))
+
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
 
 
 class CounterValueManager(BaseValueManager):
@@ -288,7 +310,8 @@ class Counter(Integer):
         )
 
     def get_update_statement(self, val, prev, ctx):
-        prev = prev or 0
+        val = self.to_database(val)
+        prev = self.to_database(prev or 0)
         field_id = uuid4().hex
 
         delta = val - prev
@@ -297,18 +320,53 @@ class Counter(Integer):
         ctx[field_id] = delta
         return ['"{0}" = "{0}" {1} {2}'.format(self.db_field_name, sign, delta)]
 
+
 class DateTime(Column):
     db_type = 'timestamp'
+
+    def to_python(self, value):
+        if isinstance(value, datetime):
+            return value
+        elif isinstance(value, date):
+            return datetime(*(value.timetuple()[:6]))
+        return datetime.utcfromtimestamp(value)
+
+    def to_database(self, value):
+        value = super(DateTime, self).to_database(value)
+        if value is None: return
+        if not isinstance(value, datetime):
+            if isinstance(value, date):
+                value = datetime(value.year, value.month, value.day)
+            else:
+                raise ValidationError("'{}' is not a datetime object".format(value))
+        epoch = datetime(1970, 1, 1, tzinfo=value.tzinfo)
+        offset = 0
+        if epoch.tzinfo:
+            offset_delta = epoch.tzinfo.utcoffset(epoch)
+            offset = offset_delta.days*24*3600 + offset_delta.seconds
+        return long(((value  - epoch).total_seconds() - offset) * 1000)
 
 
 class Date(Column):
     db_type = 'timestamp'
 
+
     def to_python(self, value):
-        value = super(Date, self).to_python(value)
         if isinstance(value, datetime):
             return value.date()
-        return value
+        elif isinstance(value, date):
+            return value
+
+        return datetime.utcfromtimestamp(value).date()
+
+    def to_database(self, value):
+        value = super(Date, self).to_database(value)
+        if isinstance(value, datetime):
+            value = value.date()
+        if not isinstance(value, date):
+            raise ValidationError("'{}' is not a date object".format(repr(value)))
+
+        return long((value - date(1970, 1, 1)).total_seconds() * 1000)
 
 
 class UUID(Column):
@@ -328,6 +386,11 @@ class UUID(Column):
                 return _UUID(val)
         raise ValidationError("{} is not a valid uuid".format(value))
 
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
 
 from uuid import UUID as pyUUID, getnode
 
@@ -382,9 +445,24 @@ class TimeUUID(UUID):
 class Boolean(Column):
     db_type = 'boolean'
 
+    class Quoter(ValueQuoter):
+        """ Cassandra 1.2.5 is stricter about boolean values """
+        def __str__(self):
+            return 'true' if self.value else 'false'
+
+    def to_python(self, value):
+        return bool(value)
+
+    def to_database(self, value):
+        return self.Quoter(bool(value))
+
 
 class Float(Column):
     db_type = 'double'
+
+    def __init__(self, double_precision=True, **kwargs):
+        self.db_type = 'double' if double_precision else 'float'
+        super(Float, self).__init__(**kwargs)
 
     def validate(self, value):
         value = super(Float, self).validate(value)
@@ -394,9 +472,31 @@ class Float(Column):
         except (TypeError, ValueError):
             raise ValidationError("{} is not a valid float".format(value))
 
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
+
 
 class Decimal(Column):
     db_type = 'decimal'
+
+    def validate(self, value):
+        from decimal import Decimal as _Decimal
+        from decimal import InvalidOperation
+        val = super(Decimal, self).validate(value)
+        if val is None: return
+        try:
+            return _Decimal(val)
+        except InvalidOperation:
+            raise ValidationError("'{}' can't be coerced to decimal".format(val))
+
+    def to_python(self, value):
+        return self.validate(value)
+
+    def to_database(self, value):
+        return self.validate(value)
 
 
 class BaseContainerColumn(Column):
@@ -479,6 +579,12 @@ class Set(BaseContainerColumn):
         if value is None: return set()
         return {self.value_col.to_python(v) for v in value}
 
+    def to_database(self, value):
+        if value is None: return None
+
+        if isinstance(value, self.Quoter): return value
+        return self.Quoter({self.value_col.to_database(v) for v in value})
+
     def get_update_statement(self, val, prev, ctx):
         """
         Returns statements that will be added to an object's update statement
@@ -491,6 +597,8 @@ class Set(BaseContainerColumn):
         """
 
         # remove from Quoter containers, if applicable
+        val = self.to_database(val)
+        prev = self.to_database(prev)
         if isinstance(val, self.Quoter): val = val.value
         if isinstance(prev, self.Quoter): prev = prev.value
 
@@ -501,7 +609,7 @@ class Set(BaseContainerColumn):
         elif prev is None or not any({v in prev for v in val}):
             field = uuid1().hex
             ctx[field] = self.Quoter(val)
-            return ['"{}" = {{}}'.format(self.db_field_name, field)]
+            return ['"{}" = %({})s'.format(self.db_field_name, field)]
         else:
             # partial update time
             to_create = val - prev
@@ -549,19 +657,26 @@ class List(BaseContainerColumn):
         if value is None: return []
         return [self.value_col.to_python(v) for v in value]
 
+    def to_database(self, value):
+        if value is None: return None
+        if isinstance(value, self.Quoter): return value
+        return self.Quoter([self.value_col.to_database(v) for v in value])
+
     def get_update_statement(self, val, prev, values):
         """
         Returns statements that will be added to an object's update statement
         also updates the query context
         """
         # remove from Quoter containers, if applicable
+        val = self.to_database(val)
+        prev = self.to_database(prev)
         if isinstance(val, self.Quoter): val = val.value
         if isinstance(prev, self.Quoter): prev = prev.value
 
         def _insert():
             field_id = uuid1().hex
             values[field_id] = self.Quoter(val)
-            return ['"{}" = {}'.format(self.db_field_name, field_id)]
+            return ['"{}" = %({})s'.format(self.db_field_name, field_id)]
 
         if val is None or val == prev:
             return []
@@ -614,12 +729,12 @@ class List(BaseContainerColumn):
                 # it here, or have it inserted in reverse
                 prepend.reverse()
                 values[field_id] = self.Quoter(prepend)
-                statements += ['"{0}" = %({1})s + "{0}"'.format(self.db_field_name, field_id)]
+                statements += ['"{0}" = :{1} + "{0}"'.format(self.db_field_name, field_id)]
 
             if append:
                 field_id = uuid1().hex
                 values[field_id] = self.Quoter(append)
-                statements += ['"{0}" = "{0}" + %({1})s'.format(self.db_field_name, field_id)]
+                statements += ['"{0}" = "{0}" + :{1}'.format(self.db_field_name, field_id)]
 
             return statements
 
@@ -683,11 +798,18 @@ class Map(BaseContainerColumn):
         if value is not None:
             return {self.key_col.to_python(k): self.value_col.to_python(v) for k,v in value.items()}
 
+    def to_database(self, value):
+        if value is None: return None
+        if isinstance(value, self.Quoter): return value
+        return self.Quoter({self.key_col.to_database(k):self.value_col.to_database(v) for k,v in value.items()})
+
     def get_update_statement(self, val, prev, ctx):
         """
         http://www.datastax.com/docs/1.2/cql_cli/using/collections_map#deletion
         """
         # remove from Quoter containers, if applicable
+        val = self.to_database(val)
+        prev = self.to_database(prev)
         if isinstance(val, self.Quoter): val = val.value
         if isinstance(prev, self.Quoter): prev = prev.value
         val = val or {}
@@ -713,6 +835,9 @@ class Map(BaseContainerColumn):
         """
         if val is prev is None:
             return []
+
+        val = self.to_database(val)
+        prev = self.to_database(prev)
         if isinstance(val, self.Quoter): val = val.value
         if isinstance(prev, self.Quoter): prev = prev.value
 
@@ -738,6 +863,9 @@ class _PartitionKeysToken(Column):
     def __init__(self, model):
         self.partition_columns = model._partition_keys.values()
         super(_PartitionKeysToken, self).__init__(partition_key=True)
+
+    def to_database(self, value):
+        raise NotImplementedError
 
     def get_cql(self):
         return "token({})".format(", ".join(c.cql for c in self.partition_columns))

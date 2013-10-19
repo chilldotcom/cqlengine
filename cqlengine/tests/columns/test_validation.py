@@ -1,7 +1,5 @@
 #tests the behavior of the column classes
-from datetime import datetime, timedelta
-from datetime import date
-from datetime import tzinfo
+from datetime import date, datetime, timedelta, tzinfo
 from decimal import Decimal as D
 from unittest import TestCase
 from uuid import uuid4, uuid1
